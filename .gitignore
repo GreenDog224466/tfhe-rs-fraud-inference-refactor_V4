@@ -1,18 +1,8 @@
-# Rust
-/target
-Cargo.lock
+# Rust Build Artifacts
+target/
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-venv/
-.env
+# Secret key — NEVER commit
+client_key.bin
 
-# Data (Keep the structure, ignore the large files)
-data/processed/*.parquet
-data/*.json
-!data/LR_weights_quantized.json
-
-# OS
+# OS generated files
 .DS_Store

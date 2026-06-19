@@ -1,107 +1,96 @@
-# Privacy-Preserving Fraud Detection using FHE (IEEE-CIS)
+# FHE Fraud Inference — Privacy-Preserving Logistic Regression on Encrypted Transactions
 
-This project implements a privacy-preserving machine learning inference system for fraud detection using **Fully Homomorphic Encryption (FHE)**. It allows a client to encrypt sensitive financial transaction data, send it to a server for analysis, and receive a fraud prediction without the server ever seeing the raw data.
+A mock fhEVM-style coprocessor that scores a credit-card transaction for fraud
+**without ever decrypting it**. Built on tfhe-rs 0.8.7 (high-level API).
 
-The system is built using **Rust** for the high-performance FHE operations (using the `tfhe` library) and **Python** for model training and data preprocessing.
+> **What this demonstrates:** a study of where privacy-preserving ML inference
+> actually breaks in practice — ciphertext sizing, ZK integrity, CRS sharing,
+> scale alignment, and the gap between a working prototype and a production
+> fhEVM coprocessor. It is a rigorous learning artifact, not a product, and it
+> is candid about its limitations.
 
-## 📂 Project Structure
+## What it does
 
-* **`src/`**: The core Rust application code.
-* `main.rs`: Entry point and **Validation Pyramid** test suite.
-* `server.rs`: The core FHE inference engine logic.
-* `config.rs`: Centralized configuration and path management.
+A client encrypts one IEEE-CIS transaction (433 features) under TFHE, attaches a
+zero-knowledge proof of well-formedness, and publishes it. A blind coprocessor
+computes an encrypted logistic-regression dot product against quantized weights
+and returns an encrypted logit. Only the key-holder can decrypt and apply the
+sigmoid.
 
+## Verified result
 
-* **`scripts/`**: Python scripts for training and data generation.
-* `generate_test_data.py`: Creates synthetic data for local validation.
-* `extract_lr_weights.py`: Extracts trained model weights into JSON format.
-* `preprocess.py`: Handles feature scaling and cleaning.
+A real transaction scored end-to-end under encryption:
 
+- FHE-decrypted logit **−0.1680** → **45.81%**
+- Plaintext mirror: dot product **−167,972**; −167,972 / 1,000,000 = −0.1680.
+  Exact match.
 
-* **`data/`**: Contains trained model weights and data files.
-* `LR_weights_quantized.json`: The quantized weights used by the FHE server.
+**This validates the homomorphic computation — that the encrypted dot product
+equals the plaintext dot product exactly — not the model's predictive quality.**
+The two are separate axes. The example model deliberately retains a spurious
+feature (see Limitations), so 45.81% is a proof of *cryptographic correctness*,
+not a trustworthy fraud-risk score.
 
+## Architecture — four binaries
 
+Run in order; each consumes the previous step's artifacts:
 
-## 🧪 Validation & Benchmarking
+1. **`network_genesis`** — mock DKG. Generates the client, public, and server
+   keys on `PARAM_MESSAGE_2_CARRY_2_KS_PBS_TUNIFORM_2M64`.
+2. **`client_encrypt`** — encrypts 433 features, builds a ZK proof bound to
+   transaction metadata, writes `request.bin` and the shared `crs.bin`.
+3. **`server_compute`** — verifies and expands the request, computes the
+   encrypted dot product against the quantized weights, writes `response.bin`.
+4. **`client_decrypt`** — decrypts the logit, reverses the output scale, applies
+   the sigmoid locally.
 
-The system features an automated **Validation Pyramid**. This allows a user to verify cryptographic integrity and hardware performance scaling in a single execution.
+## Security model
 
-| Tier | Name | Features | Rows | Purpose |
-| --- | --- | --- | --- | --- |
-| **01** | **SANITY** | 5 | 5 | Verifies I/O, Parquet loading, and basic math accuracy. |
-| **02** | **CRYPTO** | 433 | 1 | Tests noise budget with the full-scale feature set. |
-| **03** | **SATURATION** | 433 | 16 | Benchmarks parallel throughput (16-core optimization). |
+- **Confidentiality:** TFHE under TUniform 2M64 — **≥136-bit lattice security**
+  (lattice-estimator: minimum attack `dual_hybrid` ≈136.2 bits; n=887,
+  TUniform(46), q=2⁶⁴). See `SECURITY_lattice_estimate.md`.
+- **Integrity / malleability:** TFHE is IND-CPA-secure; being homomorphic, it is
+  also malleable by design — a public-mempool adversary could homomorphically
+  add deltas to a ciphertext. The `ProvenCompactCiphertextList` ZK proof (Proof
+  of Ciphertext Knowledge) binds well-formedness, the ±8192 bound, and plaintext
+  knowledge to fixed metadata (sender, nonce, chain_id, block_expiry), closing
+  that gap.
+- **Trust model (mocked):** a single `ClientKey` stands in for production DKG +
+  threshold decryption (Zama TKMS). In a real deployment the secret never exists
+  in one place; this mock holds it to stay self-contained.
+- **Known production gap:** 2M64 gives PBS failure ≤ 2⁻⁶⁴, below the 2⁻¹²⁸ that
+  production fhEVM needs to align correctness with the security level and reach
+  IND-CPA^D against decryption-oracle attacks. 2M128 requires tfhe-rs 1.x —
+  scoped as an isolated future migration because of API and key-format churn.
 
-### 🏆 Latest Validation Results
+## Known limitations
 
-The following results confirm that the system correctly handles full-scale FHE operations with zero data corruption. The **CRYPTO** pass specifically validates that the `tfhe-rs` noise budget is sufficient for the 433-feature model.
+- **Bias scale (known, negligible, left documented):** the bias is quantized in
+  Python at ×1000, not ×1,000,000, so it is ~1000× too small relative to the
+  dot-product terms. The effect is negligible — true bias ≈ −0.002, contributing
+  ~−2,000 against a raw logit in the hundreds of thousands — so it is documented
+  rather than churned. A correct version scales bias by FEATURE_SCALE ×
+  WEIGHT_SCALE.
+- **Spurious TransactionID feature:** it carries weight 37, clips to 8192, and
+  contributes 303,104 to the raw logit. Because it was trained raw while other
+  features were normalized, its magnitude effect cannot be cleanly estimated and
+  no reliable risk adjustment is possible — which is why the result is a
+  correctness proof, not a risk score.
+- **Single-row:** the client encrypts one transaction per run (Web3 atomicity);
+  batching is rejected at the client.
 
-```text
-CATEGORY     | TEST SCENARIO                | TIME (s)   | ROWS/SEC   | COST ($)     | STATUS    
-----------------------------------------------------------------------------------------------------
-SANITY       | I/O Pipeline Check           | 89.71      | 0.06       | $0.019438    | ✅ PASS
-CRYPTO       | Noise Budget Check           | 2412.60    | 0.00       | $0.522730    | ✅ PASS
+## Methodology — how this was hardened
 
-```
+The pipeline was iteratively audited and remediated across four versions, each
+change recorded baseline → change → reason in per-component documents
+(`REMEDIATION_encrypt.md`, `REMEDIATION_server_compute.md`,
+`REMEDIATION_decrypt.md`). Every change is traceable to an audit, not an ad-hoc
+edit. Each component was hardened by a distinct method: a four-model LLM
+consensus (Gemini 3.1 Pro base; Grok, DeepSeek, Claude reviewers) for encrypt;
+an audit-of-the-audit (Opus 4.7 reviewing the consensus plan) for server; and a
+pairwise model consensus (Opus 4.8 ↔ DeepSeek) for decrypt.
 
-> **Note:** The `CRYPTO` stage confirms that the cryptographic parameters are mathematically sound for high-dimensional data (433 features).
+## Stack
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-* **Rust**: Latest stable version
-* **Python**: Version 3.10 or higher
-* **Libraries**: `polars`, `numpy`
-
-### Installation & Execution
-
-1. **Clone the repository:**
-
-```bash
-git clone https://github.com/YOUR_USERNAME/GCP_FILES_FHE_IEEE_RUST.git
-cd GCP_FILES_FHE_IEEE_RUST
-
-```
-
-2. **Install Python dependencies:**
-
-```bash
-pip install polars numpy
-
-```
-
-3. **Generate Validation Data:**
-This script creates the required `.parquet` file for the Rust engine to read.
-
-```bash
-python3 scripts/generate_test_data.py
-
-```
-
-4. **Run the FHE Validation Pyramid:**
-
-```bash
-cargo run --release
-
-```
-
-## 📊 Performance Notes
-
-* **Local (Apple Silicon):** Optimized for M-series chips using `aarch64` hardware acceleration.
-* **Production (GCP):** Designed for `n2-standard-16` instances to utilize AVX-512 instructions.
-
-## 📜 License
-
-This project is open-source.
-
----
-
-### **Instructions:**
-
-1. Open your `README.md` file.
-2. **Delete everything** inside it.
-3. **Paste** the entire block above into the file.
-4. **Save** the file.
-
+tfhe-rs 0.8.7 · Polars (parquet I/O) · zeroize · serde/bincode · Python
+(scikit-learn training, quantization, feature-prep bridge).

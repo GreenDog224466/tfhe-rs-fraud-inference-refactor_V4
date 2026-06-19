@@ -1,0 +1,20 @@
+nohup: ignoring input
+   Compiling fhe_fraud_detection v0.1.0 (/mnt/pv/HEClient)
+    Finished `release` profile [optimized] target(s) in 3m 16s
+     Running `target/release/fhe_fraud_detection`
+=========================================================================================
+🔐 FHE FRAUD DETECTION: THE VALIDATION PYRAMID
+   Target Infrastructure: GCP N2-Standard-16 (AVX-512)
+=========================================================================================
+
+[Init] Generating Cryptographic Parameters (tfhe-rs default)...
+   -> Keys Active.
+
+[Init] Model Loaded. Max Features: 433
+[Init] Dataset Loaded. Available Rows: 590540
+
+CATEGORY     | TEST SCENARIO                | TIME (s)   | ROWS/SEC   | COST ($)     | STATUS    
+----------------------------------------------------------------------------------------------------
+SANITY       | I/O Pipeline Check           | 46.53      | 0.11       | $0.010082    | ✅ PASS
+CRYPTO       | Noise Budget (Max Depth)     | 932.46     | 0.00       | $0.202034    | ✅ PASS
+SATURATION   | 1:1 Core Mapping (16 vCPU)   | 13886.50   | 0.00       | $3.008743    | ✅ PASS

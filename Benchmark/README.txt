@@ -1,0 +1,1 @@
+Original GCP monolith (FheInt64, default params, no ZK). Ran the validation pyramid (sanity/crypto/saturation) on the real 590k-row dataset with exact-equality checks. Superseded by the four-binary ZK pipeline in src/bin. Run stopped after the saturation stage.

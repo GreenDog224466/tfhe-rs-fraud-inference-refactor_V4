@@ -1,21 +1,41 @@
 [package]
-name = "fhe_fraud_detection"
+name = "fhe_fraud_detection_refactor"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# --- FHE & Serialization (The new stuff) ---
-tfhe = { version = "0.6", features = ["boolean", "shortint", "integer", "aarch64-unix"] }
+# --- FHE Core ---
+tfhe = { version = "0.8.7", features = ["boolean", "shortint", "integer", "aarch64-unix", "zk-pok"] }
+
+# --- Security & Cryptography ---
+zeroize = { version = "1.8", features = ["derive"] } 
+
+# --- Serialization (The Zero-Trust Enabler) ---
+bincode = "1.3.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-# --- Data Science & Parallelism (Restoring the missing stuff) ---
-# Polars for DataFrame handling
+# --- Data Science & Parallelism ---
 polars = { version = "0.36", features = ["lazy", "random", "ndarray", "strings", "parquet"] }
-# Rayon for parallel iterators (par_iter)
 rayon = "1.8"
-# Rand for dummy data generation
 rand = "0.8"
+
+# --- BINARY TARGETS (The Airgap Setup) ---
+[[bin]]
+name = "network_genesis"
+path = "src/bin/network_genesis.rs"
+
+[[bin]]
+name = "client_encrypt"
+path = "src/bin/client_encrypt.rs"
+
+[[bin]]
+name = "server_compute"
+path = "src/bin/server_compute.rs"
+
+[[bin]]
+name = "client_decrypt"
+path = "src/bin/client_decrypt.rs"
 
 [profile.release]
 opt-level = 3
